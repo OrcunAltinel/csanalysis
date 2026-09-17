@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --chart-grid: #2c2c2a;
+  --chart-axis: #52514e;
+  --chart-text-muted: #898781;
+  --chart-series-1: #3987e5;
+  --chart-series-2: #1baf7a;
+  --chart-good: #0ca30c;
+  --chart-critical: #e66767;
+}
+
+body {
+  @apply bg-neutral-950 text-neutral-100;
+}
