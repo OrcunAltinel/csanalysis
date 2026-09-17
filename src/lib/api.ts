@@ -48,8 +48,8 @@ export function fetchSnapshots(
   return request(`/api/snapshots?watchlist_item_id=${watchlistItemId}&hours=${hours}`);
 }
 
-export function fetchDeals(watchlistItemId: string, windowDays = 7): Promise<DealsResponse> {
-  return request(`/api/deals?watchlist_item_id=${watchlistItemId}&window_days=${windowDays}`);
+export function fetchDeals(watchlistItemId: string): Promise<DealsResponse> {
+  return request(`/api/deals?watchlist_item_id=${watchlistItemId}`);
 }
 
 export function fetchOpportunities(): Promise<{ opportunities: Opportunity[] }> {

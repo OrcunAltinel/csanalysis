@@ -7,16 +7,25 @@ export default function DealFinderTable({
   listings,
   avgPrice,
   sampleSize,
+  avgBasis,
 }: {
   listings: CurrentListing[];
   avgPrice: number | null;
   sampleSize: number;
+  avgBasis: "sold" | "listed" | null;
 }) {
+  const basisLabel =
+    avgBasis === "sold"
+      ? `last ${sampleSize} sold`
+      : avgBasis === "listed"
+        ? `est. from ${sampleSize} listed prices, last 7d -- not enough sales yet`
+        : null;
+
   return (
     <div>
       <p className="mb-3 text-sm text-neutral-400">
         Rolling average: {avgPrice != null ? formatCents(avgPrice) : "not enough data yet"}
-        {avgPrice != null && ` (from ${sampleSize} price points)`}
+        {basisLabel && ` (${basisLabel})`}
       </p>
 
       {listings.length === 0 ? (

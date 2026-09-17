@@ -42,6 +42,7 @@ export interface RemovedListing {
 export interface DealsResponse {
   avg_price: number | null;
   sample_size: number;
+  avg_basis: "sold" | "listed" | null;
   listings: CurrentListing[];
   removed: RemovedListing[];
 }
@@ -59,7 +60,8 @@ export interface Opportunity {
   market_hash_name: string;
   label: string | null;
   lowest_price: number | null;
-  avg_price_7d: number | null;
+  avg_price: number | null;
+  avg_basis: "sold" | "listed" | null;
   pct_from_avg: number | null;
   change_24h: number | null;
   change_7d: number | null;

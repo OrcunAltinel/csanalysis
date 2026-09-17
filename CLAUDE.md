@@ -138,30 +138,60 @@ Environment on the primary dev machine (Windows):
       npm 11.17.0). It wasn't present initially — if `npm`/`node` are
       "not recognized" in a terminal, that terminal predates the PATH
       update; open a **brand-new** terminal window (PowerShell/cmd only read
-      PATH at process start).
+      PATH at process start). Same PATH-caching gotcha hit again with the
+      GitHub CLI install below — a fresh terminal spawned from an
+      already-running terminal app may still not see it; use the full path
+      (`C:\Program Files\GitHub CLI\gh.exe`) if `gh` isn't found.
+- [x] PowerShell execution policy was `Restricted` by default, blocking
+      `npm.ps1`. Fixed with
+      `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`
+      (user scope only, not machine-wide).
 - [x] `npm install` run, `npm run build` verified clean (compiles, type
       -checks, and lints with no errors).
-- [x] Supabase project created; `0001_init.sql` applied. Verified via a
-      direct REST call that all four tables exist (currently all empty —
-      no watchlist items added yet, no ingestion runs yet).
+- [x] Supabase project created; `0001_init.sql` and `0002_removed_at.sql`
+      applied (manually, via the Supabase SQL editor — no Supabase CLI set
+      up on this machine).
 - [x] `.env.local` populated with real Supabase + CSFloat credentials
       (gitignored, not committed).
+- [x] Watchlist has real items added (AK-47 Redline/Vulcan/Fuel Injector,
+      ★ M9 Bayonet | Doppler) and manual `/api/ingest` runs confirmed
+      end-to-end: rows land in `current_listings` / `price_snapshots`,
+      `removed_at` gets set on real inferred sales, dashboard and
+      Opportunities page render against real CSFloat data.
+- [x] GitHub CLI installed (`winget install GitHub.cli`) and authenticated
+      as `OrcunAltinel` (device-code browser login).
+- [x] Repo pushed to a **public** GitHub repo for CV purposes:
+      https://github.com/OrcunAltinel/csanalysis. Commit author uses the
+      GitHub-provided no-reply email
+      (`142558562+OrcunAltinel@users.noreply.github.com`, set repo-local
+      only) so a personal email address isn't exposed in public commit
+      history.
+
+**User preference: always ask before `git push`**, even after a prior
+approved push — a prior approval doesn't carry forward to later changes.
 
 Still to do:
 
-- [ ] Add a real skin to the watchlist via the `/watchlist` page (exact
-      `market_hash_name` — check CSFloat for the precise string).
-- [ ] Manually POST to `/api/ingest` once and confirm rows land in
-      `current_listings` / `price_snapshots` (check `ingest_log` for errors).
 - [ ] Deploy the app somewhere reachable over HTTPS (e.g. Vercel free tier),
-      with the same env vars set there.
+      with the same env vars set there. **This is the main blocker** —
+      until this is done, ingestion only ever runs when someone manually
+      calls `/api/ingest`; nothing updates in the background, and every
+      newly (re-)added watchlist item shows empty until manually polled.
 - [ ] Fill in and run `supabase/sql/schedule_ingest_cron.sql` in the Supabase
       SQL editor (needs the deployed URL + `CRON_SECRET`) to start scheduled
       polling every few minutes.
 - [ ] After a few scheduled runs, check `ingest_log` and `current_listings`
       to confirm the cron is actually firing and succeeding.
-- [ ] Nothing in this repo has been committed to git yet — everything is
-      currently untracked working-tree state.
+- [ ] Once real background polling has run for a few days, revisit whether
+      `MIN_SOLD_SAMPLES` (`src/lib/salesHistory.ts`, currently 3) is a
+      reasonable threshold for switching from the "listed price" fallback
+      average to the real "sold price" average — it was picked before any
+      real multi-day sales data existed.
+- [ ] Consider alerts (e.g. a Discord webhook) for high opportunity scores
+      or steep discounts, discussed but not built — currently you have to
+      open the dashboard/Opportunities page to notice anything.
+- [ ] Consider a lightweight portfolio tracker (skins actually bought, cost
+      basis vs. current price) — discussed but not built.
 
 ## Gotchas already hit once
 
@@ -169,3 +199,42 @@ Still to do:
   `.env.local` — caught before anything was committed, fixed. Always double
   -check which `.env*` file you're editing; only `.env.local`/`.env` are
   gitignored.
+- **Never run `npm run build` while `npm run dev` is running against the
+  same `.next` folder** — it corrupts the dev server's webpack chunk
+  manifest (`Cannot find module './NNN.js'`). Stop the dev server, `rm -rf
+  .next`, build/verify, then `rm -rf .next` again before restarting dev.
+- **CSFloat's `/listings` endpoint returns auctions by default** alongside
+  fixed-price listings. Auctions don't fit the deal-finder's price-
+  comparison model, so `fetchListingsForItem` in `src/lib/csfloat.ts`
+  explicitly passes `type: "buy_now"`. If you ever see listings with no
+  sensible fixed price, check this first.
+- **A concurrent `Promise.all(items.map(async item => ...))` fan-out over
+  many simultaneous Supabase queries sharing one client** (in
+  `src/app/api/opportunities/route.ts`) intermittently returned
+  empty/wrong results for some items while others in the same batch were
+  correct — reproducible, not a data problem (confirmed by calling the
+  exact same query for the exact same item through `/api/deals`, which
+  processes one item per request and always returned correct data). Fixed
+  by processing watchlist items sequentially instead of fanning out
+  concurrent queries per item. If a route ever needs to loop over multiple
+  items with several Supabase queries each, prefer a sequential `for`
+  loop over `Promise.all(items.map(...))`.
+- **A Python one-off diagnostic script (`json.load(sys.stdin)`) on this
+  Windows/Git-Bash setup decoded `curl` output using a non-UTF-8 codec**,
+  making a correctly-stored `★` character look like 3 mangled codepoints
+  (classic UTF-8-read-as-Latin-1 mojibake). Turned out to be a false alarm
+  in the diagnostic tool, not real data corruption — confirmed by decoding
+  `sys.stdin.buffer.read()` explicitly as UTF-8 instead. If a `curl | python
+  -c "..."` check on this machine shows suspicious mangled Unicode, force
+  explicit UTF-8 decoding before concluding the underlying data is bad.
+- **PowerShell execution policy and freshly-`winget`-installed CLIs (`gh`,
+  etc.) are not visible from an already-running terminal's process tree**,
+  including terminals/tabs spawned from it — PATH and policy changes are
+  read at process start and inherited from the parent. Use the full
+  install path, or have the user open a genuinely new top-level terminal
+  window, not just a new tab in the same running app.
+- **Mass-delete operations on live Supabase tables get blocked by an
+  auto-mode safety classifier**, even when the table is a fully
+  regenerable cache (like `current_listings`). Ask the user to run the
+  `DELETE` themselves via the Supabase SQL editor, or get explicit
+  confirmation before retrying.

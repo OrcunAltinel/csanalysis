@@ -21,7 +21,10 @@ export default function OpportunityStats({ opportunity }: { opportunity: Opportu
     <div className="space-y-2">
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
         <Stat label="Lowest" value={formatCents(opportunity.lowest_price)} />
-        <Stat label="7d avg" value={formatCents(opportunity.avg_price_7d)} />
+        <Stat
+          label={opportunity.avg_basis === "listed" ? "Avg (est., low sales)" : "Avg (sold)"}
+          value={formatCents(opportunity.avg_price)}
+        />
         <Stat label="vs avg" value={formatPct(opportunity.pct_from_avg)} />
         <Stat label="24h" value={formatPct(opportunity.change_24h)} />
         <Stat label="7d" value={formatPct(opportunity.change_7d)} />

@@ -96,12 +96,13 @@ function DashboardContent() {
 
           <section>
             <h2 className="mb-3 text-sm font-medium text-neutral-300">
-              Deal finder (current listings vs. 7-day rolling average)
+              Deal finder (current listings vs. rolling average)
             </h2>
             <DealFinderTable
               listings={deals?.listings ?? []}
               avgPrice={deals?.avg_price ?? null}
               sampleSize={deals?.sample_size ?? 0}
+              avgBasis={deals?.avg_basis ?? null}
             />
           </section>
 

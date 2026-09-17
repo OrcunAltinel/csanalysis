@@ -96,6 +96,10 @@ export async function fetchListingsForItem(
     const params: Record<string, string> = {
       market_hash_name: filter.marketHashName,
       limit: "50",
+      // Auctions don't have a fixed "buy it now" price, so they don't fit
+      // the deal-finder's price-comparison model -- exclude them at the
+      // source rather than fetching and filtering them out later.
+      type: "buy_now",
     };
     if (filter.minFloat != null) params.min_float = String(filter.minFloat);
     if (filter.maxFloat != null) params.max_float = String(filter.maxFloat);

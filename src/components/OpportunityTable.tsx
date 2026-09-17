@@ -22,7 +22,7 @@ export default function OpportunityTable({ opportunities }: { opportunities: Opp
           <tr>
             <th className="px-3 py-2 font-medium">Item</th>
             <th className="px-3 py-2 font-medium">Lowest</th>
-            <th className="px-3 py-2 font-medium">7d avg</th>
+            <th className="px-3 py-2 font-medium" title="~ means estimated from listed prices, not enough sales yet">Avg</th>
             <th className="px-3 py-2 font-medium">vs avg</th>
             <th className="px-3 py-2 font-medium">24h</th>
             <th className="px-3 py-2 font-medium">7d</th>
@@ -43,8 +43,12 @@ export default function OpportunityTable({ opportunities }: { opportunities: Opp
               <td className="px-3 py-2 tabular-nums text-neutral-100">
                 {formatCents(o.lowest_price)}
               </td>
-              <td className="px-3 py-2 tabular-nums text-neutral-300">
-                {formatCents(o.avg_price_7d)}
+              <td
+                className="px-3 py-2 tabular-nums text-neutral-300"
+                title={o.avg_basis === "listed" ? "Estimated from listed prices, not enough sales yet" : undefined}
+              >
+                {o.avg_basis === "listed" && "~ "}
+                {formatCents(o.avg_price)}
               </td>
               <td className="px-3 py-2 tabular-nums">
                 <ChangeCell value={o.pct_from_avg} />

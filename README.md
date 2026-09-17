@@ -1,27 +1,69 @@
 # csanalysis
 
-Personal CS2/CS:GO skin price tracker for watchlisted items on [CSFloat](https://csfloat.com).
-Polls the CSFloat API for a small, user-curated watchlist every few minutes, stores
-price history in Supabase/Postgres, and shows price trend, deal-finder, and
-float-vs-price views in a Next.js dashboard.
+A personal price-tracking and deal-finding tool for CS2/CS:GO skins, built on
+top of [CSFloat](https://csfloat.com)'s marketplace API. It polls a
+user-curated watchlist every few minutes, stores price history in
+Postgres, and surfaces trends, deal signals, and a heuristic "opportunity
+score" in a Next.js dashboard.
 
-Single-user, no auth. All CSFloat and Supabase writes happen server-side.
+Single-user, no auth — built to run against one person's own watchlist, not
+as a multi-tenant product.
+
+## Features
+
+- **Watchlist-driven ingestion** — track specific skins (optionally scoped by
+  float range and/or paint seed), polled on a schedule against the live
+  CSFloat API.
+- **Deal finder** — current listings for an item compared against its rolling
+  7-day average price, with below-average listings flagged.
+- **Price history** — a cheapest-listing trend chart per item, with bucket
+  granularity that adapts to how much history actually exists (hourly for a
+  fresh item, daily once it has real multi-day history).
+- **Float vs. price scatter** — spot underpriced listings at a given wear/float.
+- **Inferred sell tracking** — CSFloat's API only reports what's currently for
+  sale, never actual sales. This app infers a "sold/delisted" event when a
+  listing disappears from polling, and surfaces it as approximate sell history
+  rather than pretending it's confirmed.
+- **Opportunity scoring** — a 0-100 heuristic per watchlist item, blending
+  price discount vs. average, recent momentum, liquidity (inferred sales in
+  the last 7 days), and volatility. Explicitly **not** a prediction or a
+  profit guarantee — it's a ranking aid over your own watchlist, with the
+  weighting fully visible and tunable in `src/lib/metrics.ts`.
+- **Ranked, filterable opportunities view** — all watchlist items ranked by
+  score, filterable by price, weapon, skin, wear, and minimum score.
 
 ## Stack
 
 - Next.js 14 (App Router) + Tailwind + Recharts
-- Supabase (Postgres) via the service-role key, server-side only
-- Ingestion runs as a Next.js API route (`/api/ingest`), triggered by Supabase's
-  `pg_cron` + `pg_net` extensions -- no third-party services required
+- Supabase (Postgres) via the service-role key, server-side only — the
+  browser never talks to Supabase directly, and RLS is enabled with no
+  policies as a second layer of protection
+- Ingestion runs as a Next.js API route (`/api/ingest`), triggered by
+  Supabase's own `pg_cron` + `pg_net` extensions — no third-party scheduler
+
+## A few engineering decisions worth calling out
+
+- **Two-table storage split** (`current_listings`, upserted, bounded, vs.
+  `price_snapshots`, append-only but change-only) instead of one time-series
+  table — a naive append-every-poll design would blow past Supabase's
+  free-tier storage limit at few-minute polling intervals.
+- **`pg_cron` + `pg_net` over Vercel Cron or a Deno Edge Function** — Vercel's
+  free tier only supports daily cron jobs, too infrequent for "poll every few
+  minutes"; keeping scheduling inside Supabase avoids a third paid service.
+- **Pinned to Next.js 14.2.35**, not the latest major — a deliberate call for
+  a low-traffic personal tool, revisited only if this ever becomes
+  multi-user or publicly exposed. `npm audit` findings here are known and
+  accepted, not overlooked.
 
 ## 1. Create the Supabase project
 
 1. Create a new project at [supabase.com](https://supabase.com) (free tier is enough).
 2. In **Project Settings -> API**, copy the **Project URL** and the **service_role** key.
-3. In the SQL editor (or via the CLI, see below), run the migration:
-   `supabase/migrations/0001_init.sql`. This creates `watchlist_items`,
-   `current_listings`, `price_snapshots`, and `ingest_log`, with RLS enabled and
-   no policies (only the service-role key, used server-side, can read/write).
+3. In the SQL editor (or via the CLI, see below), run the migrations in order:
+   `supabase/migrations/0001_init.sql`, then `supabase/migrations/0002_removed_at.sql`.
+   This creates `watchlist_items`, `current_listings`, `price_snapshots`, and
+   `ingest_log`, with RLS enabled and no policies (only the service-role key,
+   used server-side, can read/write).
 
 Using the Supabase CLI instead:
 
@@ -64,8 +106,10 @@ npm run dev
   (In development, if `CRON_SECRET` is unset, the route accepts unauthenticated
   requests -- set it before deploying.)
 
-- Check the **Dashboard** page for the price history chart, float-vs-price
-  scatter, and deal finder table for a selected item.
+- Check the **Dashboard** page for per-item stats, the price history chart,
+  float-vs-price scatter, and deal finder table.
+- Check the **Opportunities** page for all watchlist items ranked by score,
+  with filters.
 
 ## 5. Deploy and schedule ingestion
 
@@ -96,8 +140,11 @@ cron-job.org) -- just point it at `<your-app-url>/api/ingest` with
 ## How ingestion avoids duplicate storage
 
 - `current_listings` holds one row per currently-active CSFloat listing and is
-  **upserted** every poll -- it never grows with polling frequency, and rows
-  for listings that stop appearing (sold/removed) are pruned after 30 minutes.
+  **upserted** every poll -- it never grows with polling frequency. When a
+  listing stops appearing, it's marked with `removed_at` (an inferred
+  sold/delisted signal) rather than deleted immediately, and only hard-deleted
+  30 days later -- long enough to be useful as sell history, short enough to
+  stay bounded.
 - `price_snapshots` is append-only, but a row is only inserted when a listing
   is new or its price/float actually changed since the last poll -- unchanged
   listings don't get a new row every few minutes.
@@ -106,10 +153,12 @@ cron-job.org) -- just point it at `<your-app-url>/api/ingest` with
 
 - `watchlist_items` -- skins to track, optionally scoped by float range and/or
   paint seed.
-- `current_listings` -- latest known state of each active listing per item
-  (feeds the deal-finder and float/price views).
+- `current_listings` -- latest known state of each listing per item, active
+  (`removed_at is null`) or recently removed. Feeds the deal-finder,
+  float/price scatter, and recently-sold views.
 - `price_snapshots` -- time-series price-change history per item, indexed by
-  `(watchlist_item_id, fetched_at)` for range queries (feeds the trend chart).
+  `(watchlist_item_id, fetched_at)` for range queries (feeds the trend chart
+  and the opportunity-score calculations).
 - `ingest_log` -- one row per ingestion run, for monitoring cron health.
 
 ## Notes / known limitations
@@ -120,5 +169,14 @@ cron-job.org) -- just point it at `<your-app-url>/api/ingest` with
   poll. If you see pagination behave oddly against the live API, check the
   actual response shape and adjust `fetchListingsForItem`.
 - The price-history chart plots the cheapest listing per time bucket (hourly
-  under 48h, daily otherwise) rather than every raw snapshot, since a single
-  item can have several listings changing price independently.
+  when the item's actual history spans under 48h, daily otherwise) rather than
+  every raw snapshot, since a single item can have several listings changing
+  price independently.
+- "Sold" data is inferred, not confirmed. CSFloat's API never reports an
+  actual sale — only what's currently listed. A listing disappearing usually
+  means it sold, but could also mean it was delisted or edited. Treat
+  `removed_at` and the opportunity score's liquidity input accordingly.
+- Opportunity scoring is a hand-weighted heuristic (see `src/lib/metrics.ts`
+  for the exact formula and tunable constants), not a model trained on
+  outcomes. It's scoped to your own watchlist, not a market-wide scan of all
+  CS2 skins.
